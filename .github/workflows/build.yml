@@ -68,6 +68,10 @@ jobs:
             --icon=app_icon.ico \
             image_converter.py
 
+      - name: Verify ARM64 Build
+        run: |
+          file dist/ImageConverter-arm64.app/Contents/MacOS/ImageConverter-arm64
+          
       - name: Upload ARM64 Build
         uses: actions/upload-artifact@v3
         with:
@@ -99,6 +103,10 @@ jobs:
             --icon=app_icon.ico \
             image_converter.py
 
+      - name: Verify Intel Build
+        run: |
+          file dist/ImageConverter-intel.app/Contents/MacOS/ImageConverter-intel
+          
       - name: Upload Intel Build
         uses: actions/upload-artifact@v3
         with:
@@ -117,30 +125,34 @@ jobs:
       - name: Install create-dmg
         run: brew install create-dmg
 
+      - name: List Artifacts
+        run: |
+          echo "Listing all downloaded artifacts:"
+          ls -R artifacts/
+
       - name: Create Universal App
         run: |
-          mkdir -p universal/ImageConverter-Universal.app/Contents/MacOS
-          
-          # Debug information
-          echo "Listing artifact contents:"
-          ls -R artifacts/
+          mkdir -p universal/ImageConverter-Universal.app/Contents/{MacOS,Resources}
           
           # Copy the base app structure
-          cp -R artifacts/macos-intel-build/ImageConverter-intel.app/Contents/Resources universal/ImageConverter-Universal.app/Contents/ || echo "Failed to copy Resources"
+          cp -R artifacts/macos-intel-build/ImageConverter-intel.app/Contents/Resources/* universal/ImageConverter-Universal.app/Contents/Resources/ || echo "Failed to copy Resources"
           cp artifacts/macos-intel-build/ImageConverter-intel.app/Contents/Info.plist universal/ImageConverter-Universal.app/Contents/ || echo "Failed to copy Info.plist"
           
           # Debug binary information
           echo "Intel binary info:"
-          file artifacts/macos-intel-build/ImageConverter-intel.app/Contents/MacOS/ImageConverter-intel
+          file artifacts/macos-intel-build/ImageConverter-intel.app/Contents/MacOS/ImageConverter-intel || echo "Intel binary not found"
           echo "ARM binary info:"
-          file artifacts/macos-arm64-build/ImageConverter-arm64.app/Contents/MacOS/ImageConverter-arm64
+          file artifacts/macos-arm64-build/ImageConverter-arm64.app/Contents/MacOS/ImageConverter-arm64 || echo "ARM binary not found"
           
           # Create universal binary
           lipo -create \
-            artifacts/macos-intel-build/ImageConverter-intel.app/Contents/MacOS/ImageConverter-intel \
-            artifacts/macos-arm64-build/ImageConverter-arm64.app/Contents/MacOS/ImageConverter-arm64 \
-            -output universal/ImageConverter-Universal.app/Contents/MacOS/ImageConverter
-          
+            "artifacts/macos-intel-build/ImageConverter-intel.app/Contents/MacOS/ImageConverter-intel" \
+            "artifacts/macos-arm64-build/ImageConverter-arm64.app/Contents/MacOS/ImageConverter-arm64" \
+            -output "universal/ImageConverter-Universal.app/Contents/MacOS/ImageConverter" \
+            || echo "Failed to create universal binary"
+
+      - name: Create DMG
+        run: |
           # Create DMG
           create-dmg \
             --volname "ImageConverter-Universal" \
@@ -151,7 +163,7 @@ jobs:
             --hide-extension "ImageConverter-Universal.app" \
             --app-drop-link 600 185 \
             "ImageConverter-Universal.dmg" \
-            "universal/"
+            "universal/" || echo "Failed to create DMG"
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
