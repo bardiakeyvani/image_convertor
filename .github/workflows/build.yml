@@ -132,28 +132,66 @@ jobs:
 
       - name: Create Universal App
         run: |
+          set -e  # Exit on any error
+          
+          echo "Creating universal app structure..."
           mkdir -p universal/ImageConverter-Universal.app/Contents/{MacOS,Resources}
           
-          # Copy the base app structure
-          cp -R artifacts/macos-intel-build/ImageConverter-intel.app/Contents/Resources/* universal/ImageConverter-Universal.app/Contents/Resources/ || echo "Failed to copy Resources"
-          cp artifacts/macos-intel-build/ImageConverter-intel.app/Contents/Info.plist universal/ImageConverter-Universal.app/Contents/ || echo "Failed to copy Info.plist"
+          echo "Debugging: Show full artifact structure"
+          find artifacts/ -type f
           
-          # Debug binary information
-          echo "Intel binary info:"
-          file artifacts/macos-intel-build/ImageConverter-intel.app/Contents/MacOS/ImageConverter-intel || echo "Intel binary not found"
-          echo "ARM binary info:"
-          file artifacts/macos-arm64-build/ImageConverter-arm64.app/Contents/MacOS/ImageConverter-arm64 || echo "ARM binary not found"
+          # First verify both binaries exist and show their architectures
+          echo "Verifying Intel binary..."
+          INTEL_BINARY="artifacts/macos-intel-build/Contents/MacOS/ImageConverter-intel"
+          if [ ! -f "$INTEL_BINARY" ]; then
+            echo "Error: Intel binary not found at expected path"
+            exit 1
+          fi
+          file "$INTEL_BINARY"
           
-          # Create universal binary
+          echo "Verifying ARM binary..."
+          ARM_BINARY="artifacts/macos-arm64-build/Contents/MacOS/ImageConverter-arm64"
+          if [ ! -f "$ARM_BINARY" ]; then
+            echo "Error: ARM binary not found at expected path"
+            exit 1
+          fi
+          file "$ARM_BINARY"
+          
+          echo "Copying app resources..."
+          cp -rv artifacts/macos-intel-build/Contents/Resources/* universal/ImageConverter-Universal.app/Contents/Resources/
+          cp -v artifacts/macos-intel-build/Contents/Info.plist universal/ImageConverter-Universal.app/Contents/
+          
+          echo "Creating universal binary..."
           lipo -create \
-            "artifacts/macos-intel-build/ImageConverter-intel.app/Contents/MacOS/ImageConverter-intel" \
-            "artifacts/macos-arm64-build/ImageConverter-arm64.app/Contents/MacOS/ImageConverter-arm64" \
-            -output "universal/ImageConverter-Universal.app/Contents/MacOS/ImageConverter" \
-            || echo "Failed to create universal binary"
+            "$INTEL_BINARY" \
+            "$ARM_BINARY" \
+            -output "universal/ImageConverter-Universal.app/Contents/MacOS/ImageConverter"
+          
+          echo "Verifying created universal binary..."
+          file "universal/ImageConverter-Universal.app/Contents/MacOS/ImageConverter"
+          
+          # Make the binary executable
+          chmod +x "universal/ImageConverter-Universal.app/Contents/MacOS/ImageConverter"
+          
+          echo "Universal app creation completed successfully"
 
       - name: Create DMG
         run: |
-          # Create DMG
+          set -e  # Exit on any error
+          
+          echo "Verifying app exists..."
+          if [ ! -d "universal/ImageConverter-Universal.app" ]; then
+            echo "Error: Universal app not found"
+            exit 1
+          fi
+          
+          echo "Verifying app contents..."
+          if [ ! -x "universal/ImageConverter-Universal.app/Contents/MacOS/ImageConverter" ]; then
+            echo "Error: Universal binary not found or not executable"
+            exit 1
+          fi
+          
+          echo "Creating DMG..."
           create-dmg \
             --volname "ImageConverter-Universal" \
             --window-pos 200 120 \
@@ -163,7 +201,15 @@ jobs:
             --hide-extension "ImageConverter-Universal.app" \
             --app-drop-link 600 185 \
             "ImageConverter-Universal.dmg" \
-            "universal/" || echo "Failed to create DMG"
+            "universal/"
+            
+          echo "Verifying DMG size..."
+          DMG_SIZE=$(stat -f%z "ImageConverter-Universal.dmg")
+          echo "DMG size: $DMG_SIZE bytes"
+          if [ $DMG_SIZE -lt 1000000 ]; then  # Less than 1MB
+            echo "Error: DMG file is suspiciously small"
+            exit 1
+          fi
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
