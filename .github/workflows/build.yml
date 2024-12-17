@@ -59,24 +59,75 @@ jobs:
           python -m pip install --upgrade pip
           pip install pyinstaller pillow pillow-heif
 
+      - name: Create Info.plist
+        run: |
+          cat > Info.plist << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleDisplayName</key>
+              <string>ImageConverter</string>
+              <key>CFBundleExecutable</key>
+              <string>ImageConverter</string>
+              <key>CFBundleIconFile</key>
+              <string>icon.icns</string>
+              <key>CFBundleIdentifier</key>
+              <string>com.imageconverter.app</string>
+              <key>CFBundleInfoDictionaryVersion</key>
+              <string>6.0</string>
+              <key>CFBundleName</key>
+              <string>ImageConverter</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>CFBundleShortVersionString</key>
+              <string>1.0.0</string>
+              <key>LSMinimumSystemVersion</key>
+              <string>10.13.0</string>
+              <key>NSHighResolutionCapable</key>
+              <true/>
+          </dict>
+          </plist>
+          EOF
+
       - name: Build with PyInstaller
         run: |
-          pyinstaller --name ImageConverter-arm64 \
+          # Build for ARM64
+          pyinstaller --name ImageConverter \
             --windowed \
             --add-data "app_icon.ico:." \
             --hidden-import PIL._tkinter_finder \
             --icon=app_icon.ico \
+            --osx-bundle-identifier=com.imageconverter.app \
             image_converter.py
-
-      - name: Verify ARM64 Build
-        run: |
-          file dist/ImageConverter-arm64.app/Contents/MacOS/ImageConverter-arm64
           
+          # Copy Info.plist
+          cp Info.plist dist/ImageConverter.app/Contents/Info.plist
+          
+          # Create temporary entitlements file
+          cat > entitlements.plist << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>com.apple.security.automation.apple-events</key>
+              <true/>
+              <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+              <true/>
+              <key>com.apple.security.cs.disable-library-validation</key>
+              <true/>
+          </dict>
+          </plist>
+          EOF
+          
+          # Sign the application
+          codesign --force --deep --options runtime --entitlements entitlements.plist --sign - dist/ImageConverter.app
+
       - name: Upload ARM64 Build
         uses: actions/upload-artifact@v3
         with:
           name: macos-arm64-build
-          path: dist/ImageConverter-arm64.app
+          path: dist/ImageConverter.app
 
   build-macos-intel:
     runs-on: macos-13
@@ -96,22 +147,42 @@ jobs:
 
       - name: Build with PyInstaller
         run: |
-          arch -x86_64 pyinstaller --name ImageConverter-intel \
+          # Build for Intel
+          arch -x86_64 pyinstaller --name ImageConverter \
             --windowed \
             --add-data "app_icon.ico:." \
             --hidden-import PIL._tkinter_finder \
             --icon=app_icon.ico \
+            --osx-bundle-identifier=com.imageconverter.app \
             image_converter.py
-
-      - name: Verify Intel Build
-        run: |
-          file dist/ImageConverter-intel.app/Contents/MacOS/ImageConverter-intel
           
+          # Copy Info.plist
+          cp Info.plist dist/ImageConverter.app/Contents/Info.plist
+          
+          # Create temporary entitlements file
+          cat > entitlements.plist << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>com.apple.security.automation.apple-events</key>
+              <true/>
+              <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+              <true/>
+              <key>com.apple.security.cs.disable-library-validation</key>
+              <true/>
+          </dict>
+          </plist>
+          EOF
+          
+          # Sign the application
+          codesign --force --deep --options runtime --entitlements entitlements.plist --sign - dist/ImageConverter.app
+
       - name: Upload Intel Build
         uses: actions/upload-artifact@v3
         with:
           name: macos-intel-build
-          path: dist/ImageConverter-intel.app
+          path: dist/ImageConverter.app
 
   create-release:
     needs: [build-windows, build-macos-arm64, build-macos-intel]
@@ -125,88 +196,74 @@ jobs:
       - name: Install create-dmg
         run: brew install create-dmg
 
-      - name: List Artifacts
-        run: |
-          echo "Listing all downloaded artifacts:"
-          ls -R artifacts/
-
       - name: Create Universal App
         run: |
           set -e  # Exit on any error
           
           echo "Creating universal app structure..."
-          mkdir -p universal/ImageConverter-Universal.app/Contents/{MacOS,Resources}
+          mkdir -p universal/ImageConverter.app/Contents/{MacOS,Resources}
           
           echo "Debugging: Show full artifact structure"
           find artifacts/ -type f
           
-          # First verify both binaries exist and show their architectures
-          echo "Verifying Intel binary..."
-          INTEL_BINARY="artifacts/macos-intel-build/Contents/MacOS/ImageConverter-intel"
-          if [ ! -f "$INTEL_BINARY" ]; then
-            echo "Error: Intel binary not found at expected path"
-            exit 1
-          fi
-          file "$INTEL_BINARY"
+          # Copy Intel app structure
+          cp -r artifacts/macos-intel-build/Contents/* universal/ImageConverter.app/Contents/
           
-          echo "Verifying ARM binary..."
-          ARM_BINARY="artifacts/macos-arm64-build/Contents/MacOS/ImageConverter-arm64"
-          if [ ! -f "$ARM_BINARY" ]; then
-            echo "Error: ARM binary not found at expected path"
-            exit 1
-          fi
-          file "$ARM_BINARY"
-          
-          echo "Copying app resources..."
-          cp -rv artifacts/macos-intel-build/Contents/Resources/* universal/ImageConverter-Universal.app/Contents/Resources/
-          cp -v artifacts/macos-intel-build/Contents/Info.plist universal/ImageConverter-Universal.app/Contents/
-          
-          echo "Creating universal binary..."
+          # Create universal binary
           lipo -create \
-            "$INTEL_BINARY" \
-            "$ARM_BINARY" \
-            -output "universal/ImageConverter-Universal.app/Contents/MacOS/ImageConverter"
+            artifacts/macos-intel-build/Contents/MacOS/ImageConverter \
+            artifacts/macos-arm64-build/Contents/MacOS/ImageConverter \
+            -output universal/ImageConverter.app/Contents/MacOS/ImageConverter
           
-          echo "Verifying created universal binary..."
-          file "universal/ImageConverter-Universal.app/Contents/MacOS/ImageConverter"
+          chmod +x universal/ImageConverter.app/Contents/MacOS/ImageConverter
           
-          # Make the binary executable
-          chmod +x "universal/ImageConverter-Universal.app/Contents/MacOS/ImageConverter"
+          # Create temporary entitlements file
+          cat > entitlements.plist << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>com.apple.security.automation.apple-events</key>
+              <true/>
+              <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+              <true/>
+              <key>com.apple.security.cs.disable-library-validation</key>
+              <true/>
+          </dict>
+          </plist>
+          EOF
           
-          echo "Universal app creation completed successfully"
+          # Sign the universal app
+          codesign --force --deep --options runtime --entitlements entitlements.plist --sign - universal/ImageConverter.app
 
       - name: Create DMG
         run: |
           set -e  # Exit on any error
           
-          echo "Verifying app exists..."
-          if [ ! -d "universal/ImageConverter-Universal.app" ]; then
-            echo "Error: Universal app not found"
-            exit 1
-          fi
-          
-          echo "Verifying app contents..."
-          if [ ! -x "universal/ImageConverter-Universal.app/Contents/MacOS/ImageConverter" ]; then
-            echo "Error: Universal binary not found or not executable"
-            exit 1
-          fi
-          
           echo "Creating DMG..."
           create-dmg \
-            --volname "ImageConverter-Universal" \
+            --volname "ImageConverter" \
             --window-pos 200 120 \
             --window-size 800 400 \
             --icon-size 100 \
-            --icon "ImageConverter-Universal.app" 200 190 \
-            --hide-extension "ImageConverter-Universal.app" \
+            --icon "ImageConverter.app" 200 190 \
+            --hide-extension "ImageConverter.app" \
             --app-drop-link 600 185 \
-            "ImageConverter-Universal.dmg" \
+            "ImageConverter.dmg" \
             "universal/"
             
-          echo "Verifying DMG size..."
-          DMG_SIZE=$(stat -f%z "ImageConverter-Universal.dmg")
+          # Sign the DMG
+          codesign --sign - "ImageConverter.dmg"
+          
+          echo "Verifying DMG..."
+          if [ ! -f "ImageConverter.dmg" ]; then
+            echo "Error: DMG not created"
+            exit 1
+          fi
+          
+          DMG_SIZE=$(stat -f%z "ImageConverter.dmg")
           echo "DMG size: $DMG_SIZE bytes"
-          if [ $DMG_SIZE -lt 1000000 ]; then  # Less than 1MB
+          if [ $DMG_SIZE -lt 1000000 ]; then
             echo "Error: DMG file is suspiciously small"
             exit 1
           fi
@@ -216,7 +273,7 @@ jobs:
         with:
           files: |
             artifacts/windows-build/ImageConverter.exe
-            ImageConverter-Universal.dmg
+            ImageConverter.dmg
           name: Release ${{ github.ref_name }}
           body: |
             Image Converter Release ${{ github.ref_name }}
@@ -227,9 +284,9 @@ jobs:
             2. Run the executable
             
             ### Mac (Universal - supports both Intel and Apple Silicon)
-            1. Download ImageConverter-Universal.dmg
+            1. Download ImageConverter.dmg
             2. Open the DMG file
-            3. Drag the ImageConverter app to your Applications folder
+            3. Drag ImageConverter to your Applications folder
             
             ## Changes in this version
             - Universal Mac support (Intel and Apple Silicon)
