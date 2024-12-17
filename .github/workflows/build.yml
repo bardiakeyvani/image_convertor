@@ -5,7 +5,6 @@ on:
     tags:
       - 'v*' # Trigger on version tags
 
-# Add permissions block at workflow level
 permissions:
   contents: write
   packages: write
@@ -49,8 +48,8 @@ jobs:
             Image Converter Release ${{ github.ref_name }}
             
             ## Installation
-            1. Download ImageConverter.exe
-            2. Run the executable
+            1. Download ImageConverter.exe for Windows
+            2. Download ImageConverter-Universal.dmg for Mac (supports both Intel and Apple Silicon)
             
             ## Changes in this version
             - [Add your changes here]
@@ -75,26 +74,60 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pyinstaller pillow pillow-heif
+          brew install create-dmg
 
-      - name: Build with PyInstaller
+      - name: Build Universal Binary with PyInstaller
         run: |
-          pyinstaller --name ImageConverter \
+          # Build for Intel (x86_64)
+          pyinstaller --name ImageConverter-x86_64 \
             --windowed \
-            --onefile \
+            --target-arch x86_64 \
             --add-data "app_icon.ico:." \
             --hidden-import PIL._tkinter_finder \
             --icon=app_icon.ico \
             image_converter.py
 
+          # Build for Apple Silicon (arm64)
+          pyinstaller --name ImageConverter-arm64 \
+            --windowed \
+            --target-arch arm64 \
+            --add-data "app_icon.ico:." \
+            --hidden-import PIL._tkinter_finder \
+            --icon=app_icon.ico \
+            image_converter.py
+
+          # Create universal binary
+          mkdir -p dist/universal
+          lipo "dist/ImageConverter-x86_64.app/Contents/MacOS/ImageConverter-x86_64" \
+              "dist/ImageConverter-arm64.app/Contents/MacOS/ImageConverter-arm64" \
+              -create -output "dist/universal/ImageConverter"
+
+          # Create universal app bundle
+          cp -R "dist/ImageConverter-x86_64.app" "dist/ImageConverter-Universal.app"
+          cp "dist/universal/ImageConverter" "dist/ImageConverter-Universal.app/Contents/MacOS/ImageConverter-Universal"
+
       - name: Create DMG
         run: |
-          cd dist
-          hdiutil create -volname "ImageConverter" -srcfolder ImageConverter.app -ov -format UDZO ImageConverter.dmg
+          # Create a temporary directory for DMG contents
+          mkdir -p dist/dmg
+          cp -R "dist/ImageConverter-Universal.app" dist/dmg/
+          
+          # Create DMG
+          create-dmg \
+            --volname "ImageConverter-Universal" \
+            --window-pos 200 120 \
+            --window-size 800 400 \
+            --icon-size 100 \
+            --icon "ImageConverter-Universal.app" 200 190 \
+            --hide-extension "ImageConverter-Universal.app" \
+            --app-drop-link 600 185 \
+            "dist/ImageConverter-Universal.dmg" \
+            "dist/dmg/"
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            dist/ImageConverter.dmg
+            dist/ImageConverter-Universal.dmg
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
