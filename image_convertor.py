@@ -16,7 +16,7 @@ class ImageConverterApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Image to JPEG Converter")
-        self.root.geometry("600x400")
+        self.root.geometry("600x500")
 
         # Selected path variable
         self.selected_path = tk.StringVar()
@@ -26,6 +26,22 @@ class ImageConverterApp:
 
         self.create_widgets()
         self.check_queue()
+
+    def update_quality_info(self, *args):
+        """Update the quality information label based on slider value"""
+        quality = self.quality_var.get()
+        size_impact = ""
+
+        if quality >= 90:
+            size_impact = "Largest file size, best quality"
+        elif quality >= 70:
+            size_impact = "Good balance of size and quality"
+        elif quality >= 50:
+            size_impact = "Smaller files, acceptable quality"
+        else:
+            size_impact = "Smallest files, reduced quality"
+
+        self.quality_info.config(text=f"Quality: {quality}%\n{size_impact}")
 
     def create_widgets(self):
         # Main frame
@@ -67,6 +83,30 @@ class ImageConverterApp:
             button_frame, text="Convert", command=self.start_conversion, width=15
         )
         self.convert_button.pack(side="left", padx=5)
+
+        # Quality control frame
+        quality_frame = tk.LabelFrame(main_frame, text="JPEG Quality", padx=10, pady=10)
+        quality_frame.pack(fill="x", pady=(0, 20))
+
+        # Quality slider
+        self.quality_var = tk.IntVar(value=95)
+        self.quality_slider = ttk.Scale(
+            quality_frame,
+            from_=1,
+            to=100,
+            orient="horizontal",
+            variable=self.quality_var,
+            command=self.update_quality_info,
+        )
+        self.quality_slider.pack(fill="x", pady=(0, 5))
+
+        # Quality info label
+        self.quality_info = tk.Label(
+            quality_frame,
+            text="Higher quality = Larger file size\nCurrent: 95% (Recommended)",
+            justify=tk.CENTER,
+        )
+        self.quality_info.pack()
 
         # Status frame
         self.status_label = tk.Label(
@@ -175,8 +215,11 @@ class ImageConverterApp:
             elif img.mode != "RGB":
                 img = img.convert("RGB")
 
-            # Save as JPEG with high quality
-            img.save(output_path, "JPEG", quality=95)
+            # Get the current quality setting
+            quality = self.quality_var.get()
+
+            # Save as JPEG with selected quality
+            img.save(output_path, "JPEG", quality=quality)
             return True
 
         except Exception as e:
@@ -249,6 +292,7 @@ class ImageConverterApp:
                     }
                 )
                 self.message_queue.put({"type": "status", "text": "No images found"})
+                self.enable_buttons()
                 return
 
             processed_files = 0
@@ -280,6 +324,7 @@ class ImageConverterApp:
         else:
             messagebox.showerror("Error", "Selected path does not exist!")
             self.message_queue.put({"type": "status", "text": "Error: Invalid path"})
+            self.enable_buttons()
 
 
 def main():
