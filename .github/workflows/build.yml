@@ -75,7 +75,7 @@ jobs:
           path: dist/ImageConverter-arm64.app
 
   build-macos-intel:
-    runs-on: macos-latest
+    runs-on: macos-13
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -92,7 +92,7 @@ jobs:
 
       - name: Build with PyInstaller
         run: |
-          pyinstaller --name ImageConverter-intel \
+          arch -x86_64 pyinstaller --name ImageConverter-intel \
             --windowed \
             --add-data "app_icon.ico:." \
             --hidden-import PIL._tkinter_finder \
@@ -121,14 +121,24 @@ jobs:
         run: |
           mkdir -p universal/ImageConverter-Universal.app/Contents/MacOS
           
-          # Copy the base app structure from Intel build
-          cp -R artifacts/macos-intel-build/Contents/Resources universal/ImageConverter-Universal.app/Contents/
-          cp artifacts/macos-intel-build/Contents/Info.plist universal/ImageConverter-Universal.app/Contents/
+          # Debug information
+          echo "Listing artifact contents:"
+          ls -R artifacts/
+          
+          # Copy the base app structure
+          cp -R artifacts/macos-intel-build/ImageConverter-intel.app/Contents/Resources universal/ImageConverter-Universal.app/Contents/ || echo "Failed to copy Resources"
+          cp artifacts/macos-intel-build/ImageConverter-intel.app/Contents/Info.plist universal/ImageConverter-Universal.app/Contents/ || echo "Failed to copy Info.plist"
+          
+          # Debug binary information
+          echo "Intel binary info:"
+          file artifacts/macos-intel-build/ImageConverter-intel.app/Contents/MacOS/ImageConverter-intel
+          echo "ARM binary info:"
+          file artifacts/macos-arm64-build/ImageConverter-arm64.app/Contents/MacOS/ImageConverter-arm64
           
           # Create universal binary
           lipo -create \
-            artifacts/macos-intel-build/Contents/MacOS/ImageConverter-intel \
-            artifacts/macos-arm64-build/Contents/MacOS/ImageConverter-arm64 \
+            artifacts/macos-intel-build/ImageConverter-intel.app/Contents/MacOS/ImageConverter-intel \
+            artifacts/macos-arm64-build/ImageConverter-arm64.app/Contents/MacOS/ImageConverter-arm64 \
             -output universal/ImageConverter-Universal.app/Contents/MacOS/ImageConverter
           
           # Create DMG
